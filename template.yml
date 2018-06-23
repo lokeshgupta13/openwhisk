@@ -40,13 +40,25 @@ parameters:
   description: Boolean denoting whether load balancer data is local or shared
   value: "TRUE"
   required: true
+- name: CONTROLLER_INVOKER_BUSYTHRESHOLD
+  description: Value that controllers when the Controller(s) considers the Invoker(s) to be full. This should be less than or equal to INVOKER_MAX_CONTAINERS. Making them equal will give the highest function density but setting it a bit less than INVOKER_MAX_CONTAINERS can improve overall system throughput and reduce Invoker function container thrashing.
+  value: "8"
+  required: true
+- name: CONTROLLER_INVOKER_BLACKBOXFRACTION
+  description: What percent of Invokers should be used for blackbox (user-provider container image) actions. At least one Invoker will be dedicated for blackbox actions as long as 2 or more Invokers are deployed no matter what percentage is set here.
+  value: "10%"
+  required: true
 - name: AKKA_CLUSTER_SEED_NODES
   description: Hostnames of akka seed nodes
-  value: "controller-0.controller controller-1.controller"
+  value: "controller-0.controller:2551"
   required: true
 - name: INVOKER_INSTANCES
   description: The desired number of invokers
   value: "1"
+  required: true
+- name: INVOKER_CPU_REQUEST
+  description: The minimum cpu cores for each Invoker
+  value: "500m"
   required: true
 - name: INVOKER_MEMORY_REQUEST
   description: The minimum container memory for each Invoker
@@ -72,9 +84,21 @@ parameters:
   description: Maximum time an idle function container should stick around before the Invoker marks it as paused. Example values - "5 seconds", "500 milliseconds", etc.
   value: "5 seconds"
   required: true
+- name: INVOKER_CONTAINER_CONCURRENT_STARTS
+  description: Maximum number of action containers each Invoker will attempt to start at once. Raise or lower this number depending on your throughput requirements, cold start rate, number of Invokers you deploy, and how quickly your cluster can spin up new pods.
+  value: "10"
+  required: true
+- name: INVOKER_LOGSTORE_PROVIDER
+  description: Apache OpenWhisk LogStoreProvider implementation. Setting this to whisk.core.containerpool.logging.LogDriverLogStoreProvider will increase throughput but users will have to find logs another way, like via Kibana.
+  value: "whisk.core.containerpool.logging.DockerToActivationLogStoreProvider"
+  required: true
 - name: COUCHDB_INSTANCES
   description: The desired number of CouchDB nodes
   value: "1"
+  required: true
+- name: COUCHDB_CPU_REQUEST
+  description: The minimum cpu cores for each CouchDB
+  value: "500m"
   required: true
 - name: COUCHDB_MEMORY_REQUEST
   description: The minimum container memory for each CouchDB
@@ -143,17 +167,41 @@ parameters:
   description: Number of days to keep activation records before pruning them from the database
   value: "30"
   required: true
+- name: WHISK_ACTIONS_MEMORY_MAX
+  description: Maximum memory an action is allowed to request.
+  value: "1024 m"
+  required: true
+- name: WHISK_ACTIONS_MEMORY_MIN
+  description: Minimum memory an action is allowed to request.
+  value: "128 m"
+  required: true
+- name: WHISK_ACTIONS_MEMORY_STD
+  description: Default memory an action requests if unspecified.
+  value: "256 m"
+  required: true
+- name: WHISK_KAFKA_REPLICATION_FACTOR
+  description: Replication factor for all OpenWhisk topics
+  value: "1"
+  required: true
+- name: WHISK_KAFKA_TOPICS_COMPLETED_RETENTION_BYTES
+  description: Maximum bytes to retain for the completed activations topic for each Controller. Each kafka node will consume this many bytes times the number of Controllers just for the completed topics. So, if this is set to 1GB and you have 3 Controllers then expect up to 3GB of disk space used by the Controller topics.
+  value: "268435456"
+  required: true
+- name: WHISK_KAFKA_TOPICS_INVOKER_RETENTION_BYTES
+  description: Maximum bytes to retain for each Invoker topic. Each Kafka node will consume this many bytes times the number of Invokers just for the Invoker topics. So, if this is set to 1GB and you have 10 Invokers then expect up to 10GB of disk space used by the Invoker topics.
+  value: "268435456"
+  required: true
 - name: OPENWHISK_VERSION
   description: The DockerHub tag for openwhisk/{controller,invoker}
-  value: "rhdemo-b7724ef"
+  value: "rhdemo-9717f07a"
   required: true
 - name: PROJECTODD_VERSION
   description: The DockerHub tag for projectodd images
-  value: "f5eae82"
+  value: "8ee5579"
   required: true
 - name: STRIMZI_VERSION
   description: The DockerHub tag for strimzi images
-  value: "0.2.0"
+  value: "0.3.1"
   required: true
 
 objects:
@@ -170,37 +218,7 @@ objects:
     - from:
         kind: DockerImage
         name: docker.io/strimzi/cluster-controller:${STRIMZI_VERSION}
-      name: ${STRIMZI_VERSION}
-      referencePolicy:
-        type: Local
-- apiVersion: "v1"
-  kind: "ImageStream"
-  metadata:
-    name: "zookeeper"
-  spec:
-    dockerImageRepository: "docker.io/strimzi/zookeeper"
-    lookupPolicy:
-      local: true
-    tags:
-    - from:
-        kind: DockerImage
-        name: docker.io/strimzi/zookeeper:${STRIMZI_VERSION}
-      name: ${STRIMZI_VERSION}
-      referencePolicy:
-        type: Local
-- apiVersion: "v1"
-  kind: "ImageStream"
-  metadata:
-    name: "kafka"
-  spec:
-    dockerImageRepository: "docker.io/strimzi/kafka"
-    lookupPolicy:
-      local: true
-    tags:
-    - from:
-        kind: DockerImage
-        name: docker.io/strimzi/kafka:${STRIMZI_VERSION}
-      name: ${STRIMZI_VERSION}
+      name: whisky
       referencePolicy:
         type: Local
 - apiVersion: "v1"
@@ -215,7 +233,7 @@ objects:
     - from:
         kind: DockerImage
         name: docker.io/projectodd/controller:${OPENWHISK_VERSION}
-      name: ${OPENWHISK_VERSION}
+      name: whisky
       referencePolicy:
         type: Local
 - apiVersion: "v1"
@@ -230,7 +248,7 @@ objects:
     - from:
         kind: DockerImage
         name: docker.io/projectodd/invoker:${OPENWHISK_VERSION}
-      name: ${OPENWHISK_VERSION}
+      name: whisky
       referencePolicy:
         type: Local
 - apiVersion: "v1"
@@ -245,7 +263,7 @@ objects:
     - from:
         kind: DockerImage
         name: docker.io/projectodd/action-nodejs-6:${PROJECTODD_VERSION}
-      name: ${PROJECTODD_VERSION}
+      name: whisky
       referencePolicy:
         type: Local
 - apiVersion: "v1"
@@ -260,7 +278,7 @@ objects:
     - from:
         kind: DockerImage
         name: docker.io/projectodd/action-nodejs-8:${PROJECTODD_VERSION}
-      name: ${PROJECTODD_VERSION}
+      name: whisky
       referencePolicy:
         type: Local
 - apiVersion: "v1"
@@ -275,7 +293,7 @@ objects:
     - from:
         kind: DockerImage
         name: docker.io/projectodd/action-java-8:${PROJECTODD_VERSION}
-      name: ${PROJECTODD_VERSION}
+      name: whisky
       referencePolicy:
         type: Local
 - apiVersion: "v1"
@@ -290,7 +308,7 @@ objects:
     - from:
         kind: DockerImage
         name: docker.io/projectodd/action-python-3:${PROJECTODD_VERSION}
-      name: ${PROJECTODD_VERSION}
+      name: whisky
       referencePolicy:
         type: Local
 - apiVersion: "v1"
@@ -305,7 +323,7 @@ objects:
     - from:
         kind: DockerImage
         name: docker.io/projectodd/action-python-2:${PROJECTODD_VERSION}
-      name: ${PROJECTODD_VERSION}
+      name: whisky
       referencePolicy:
         type: Local
 - apiVersion: "v1"
@@ -320,7 +338,22 @@ objects:
     - from:
         kind: DockerImage
         name: docker.io/projectodd/action-php-7:${PROJECTODD_VERSION}
-      name: ${PROJECTODD_VERSION}
+      name: whisky
+      referencePolicy:
+        type: Local
+- apiVersion: "v1"
+  kind: "ImageStream"
+  metadata:
+    name: "dockerskeleton"
+  spec:
+    dockerImageRepository: "docker.io/projectodd/dockerskeleton"
+    lookupPolicy:
+      local: true
+    tags:
+    - from:
+        kind: DockerImage
+        name: docker.io/projectodd/dockerskeleton:${PROJECTODD_VERSION}
+      name: whisky
       referencePolicy:
         type: Local
 - apiVersion: "v1"
@@ -335,7 +368,7 @@ objects:
     - from:
         kind: DockerImage
         name: docker.io/projectodd/whisk_couchdb:${PROJECTODD_VERSION}
-      name: ${PROJECTODD_VERSION}
+      name: whisky
       referencePolicy:
         type: Local
 - apiVersion: "v1"
@@ -350,7 +383,7 @@ objects:
     - from:
         kind: DockerImage
         name: docker.io/projectodd/whisk_alarms:${PROJECTODD_VERSION}
-      name: ${PROJECTODD_VERSION}
+      name: whisky
       referencePolicy:
         type: Local
 - apiVersion: "v1"
@@ -365,7 +398,7 @@ objects:
     - from:
         kind: DockerImage
         name: docker.io/openwhisk/alarmprovider:1.9.0
-      name: 1.9.0
+      name: whisky
       referencePolicy:
         type: Local
 - apiVersion: "v1"
@@ -380,7 +413,7 @@ objects:
     - from:
         kind: DockerImage
         name: docker.io/projectodd/whisk_catalog:${PROJECTODD_VERSION}
-      name: ${PROJECTODD_VERSION}
+      name: whisky
       referencePolicy:
         type: Local
 - apiVersion: "v1"
@@ -395,7 +428,22 @@ objects:
     - from:
         kind: DockerImage
         name: docker.io/busybox
-      name: latest
+      name: whisky
+      referencePolicy:
+        type: Local
+- apiVersion: "v1"
+  kind: "ImageStream"
+  metadata:
+    name: "nginx"
+  spec:
+    dockerImageRepository: "centos/nginx-112-centos7"
+    lookupPolicy:
+      local: true
+    tags:
+    - from:
+        kind: DockerImage
+        name: "centos/nginx-112-centos7@sha256:42330f7f29ba1ad67819f4ff3ae2472f62de13a827a74736a5098728462212e7"
+      name: whisky
       referencePolicy:
         type: Local
 
@@ -532,7 +580,7 @@ objects:
           },
           "blackboxes": [
               {
-                  "name": "projectodd/dockerskeleton"
+                  "name": "dockerskeleton"
               }
           ]
       }
@@ -545,12 +593,12 @@ objects:
       strimzi.io/kind: cluster
   data:
     kafka-nodes: "${KAFKA_NODE_COUNT}"
-    kafka-image: "kafka:${STRIMZI_VERSION}"
-    kafka-healthcheck-delay: "15"
+    kafka-image: "strimzi/kafka:${STRIMZI_VERSION}"
+    kafka-healthcheck-delay: "60"
     kafka-healthcheck-timeout: "5"
     zookeeper-nodes: "${ZOOKEEPER_NODE_COUNT}"
-    zookeeper-image: "zookeeper:${STRIMZI_VERSION}"
-    zookeeper-healthcheck-delay: "15"
+    zookeeper-image: "strimzi/zookeeper:${STRIMZI_VERSION}"
+    zookeeper-healthcheck-delay: "30"
     zookeeper-healthcheck-timeout: "5"
     KAFKA_DEFAULT_REPLICATION_FACTOR: "${KAFKA_NODE_COUNT}"
     KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: "${KAFKA_NODE_COUNT}"
@@ -600,11 +648,13 @@ objects:
         containers:
         - name: controller
           imagePullPolicy: IfNotPresent
-          image: controller:${OPENWHISK_VERSION}
-          command: ["/bin/bash", "-c", "COMPONENT_NAME=$(hostname | cut -d'-' -f2) /init.sh `hostname | cut -d'-' -f2`"]
+          image: controller:whisky
+          command: ["/bin/bash", "-c", "COMPONENT_NAME=$(hostname | cut -d'-' -f2) CONFIG_akka_remote_netty_tcp_hostname=$(hostname).controller /init.sh `hostname | cut -d'-' -f2`"]
           ports:
           - name: controller
             containerPort: 8080
+          - name: akka
+            containerPort: 2551
           resources:
             requests:
               memory: ${CONTROLLER_MEMORY_REQUEST}
@@ -623,6 +673,24 @@ objects:
             value: ${AKKA_CLUSTER_SEED_NODES}
           - name: "CONFIG_akka_actor_provider"
             value: "cluster"
+          - name: "CONFIG_akka_remote_netty_tcp_bindPort"
+            value: "2551"
+          - name: "CONFIG_akka_remote_netty_tcp_port"
+            value: "2551"
+          - name: "CONFIG_whisk_loadbalancer_invokerBusyThreshold"
+            value: "${CONTROLLER_INVOKER_BUSYTHRESHOLD}"
+          - name: "CONFIG_whisk_loadbalancer_blackboxFraction"
+            value: "${CONTROLLER_INVOKER_BLACKBOXFRACTION}"
+          - name: "CONFIG_whisk_memory_max"
+            value: "${WHISK_ACTIONS_MEMORY_MAX}"
+          - name: "CONFIG_whisk_memory_min"
+            value: "${WHISK_ACTIONS_MEMORY_MIN}"
+          - name: "CONFIG_whisk_memory_std"
+            value: "${WHISK_ACTIONS_MEMORY_STD}"
+          - name: "CONFIG_whisk_kafka_replicationFactor"
+            value: "${WHISK_KAFKA_REPLICATION_FACTOR}"
+          - name: "CONFIG_whisk_kafka_topics_completed_retentionBytes"
+            value: "${WHISK_KAFKA_TOPICS_COMPLETED_RETENTION_BYTES}"
   
           # extra JVM arguments
           - name: "JAVA_OPTS"
@@ -758,10 +826,10 @@ objects:
             failureThreshold: 5
         initContainers:
         - name: wait-for-services
-          image: busybox
+          image: busybox:whisky
           command: ['sh', '-cu', 'until nslookup couchdb && nslookup strimzi-openwhisk-kafka; do echo waiting for services; sleep 1; done']
         - name: wait-for-couchdb
-          image: busybox
+          image: busybox:whisky
           command: ['sh', '-c', 'until wget -T 5 --spider http://${COUCHDB_SERVICE_HOST}:${COUCHDB_SERVICE_PORT}/${DB_WHISK_ACTIVATIONS}; do echo waiting for couchdb; sleep 2; done;']
           env:
           - name: "DB_WHISK_ACTIVATIONS"
@@ -781,7 +849,7 @@ objects:
       spec:
         containers:
         - name: catalog
-          image: catalog:${PROJECTODD_VERSION}
+          image: catalog:whisky
           env:
             - name: "WHISK_AUTH"
               valueFrom:
@@ -792,7 +860,7 @@ objects:
               value: "http://controller:8080"
         initContainers:
         - name: wait-for-controller
-          image: busybox
+          image: busybox:whisky
           command: ['sh', '-c', 'until wget -T 5 --spider http://controller:8080/ping; do echo waiting for controller; sleep 2; done;']
         restartPolicy: Never
 - apiVersion: v1
@@ -855,7 +923,7 @@ objects:
         containers:
         - name: couchdb
           imagePullPolicy: IfNotPresent
-          image: couchdb:${PROJECTODD_VERSION}
+          image: couchdb:whisky
           command: ["/init.sh"]
           ports:
           - name: couchdb
@@ -865,6 +933,7 @@ objects:
           - containerPort: 9100
           resources:
             requests:
+              cpu: "${COUCHDB_CPU_REQUEST}"
               memory: ${COUCHDB_MEMORY_REQUEST}
             limits:
               memory: ${COUCHDB_MEMORY_LIMIT}
@@ -919,16 +988,16 @@ objects:
               port: 5984
               path: "/_utils/"
             initialDelaySeconds: 10
-            periodSeconds: 10
+            periodSeconds: 15
             failureThreshold: 10
-            timeoutSeconds: 1
+            timeoutSeconds: 3
 - apiVersion: v1
   kind: ConfigMap
   metadata:
     name: invoker.config
   data:
     docker_image_prefix: ""
-    docker_image_tag: ${PROJECTODD_VERSION}
+    docker_image_tag: whisky
     docker_registry: ""
     invoker_container_dns: ""
     invoker_container_network: bridge
@@ -986,22 +1055,23 @@ objects:
   
         initContainers:
         - name: wait-for-services
-          image: busybox
+          image: busybox:whisky
           command: ['sh', '-cu', 'until nslookup couchdb && nslookup strimzi-openwhisk-zookeeper && nslookup strimzi-openwhisk-kafka; do echo waiting for services; sleep 1; done']
         - name: wait-for-controller
-          image: busybox
+          image: busybox:whisky
           command: ['sh', '-c', 'until wget -T 5 --spider http://controller:8080/ping; do echo waiting for controller; sleep 2; done;']
   
         containers:
         - name: invoker
           imagePullPolicy: IfNotPresent
-          image: invoker:${OPENWHISK_VERSION}
+          image: invoker:whisky
           command: [ "/bin/bash", "-o", "allexport", "/invoker_config/init" ]
           ports:
           - name: invoker
             containerPort: 8080
           resources:
             requests:
+              cpu: "${INVOKER_CPU_REQUEST}"
               memory: ${INVOKER_MEMORY_REQUEST}
             limits:
               memory: ${INVOKER_MEMORY_LIMIT}
@@ -1042,6 +1112,18 @@ objects:
               value: "${INVOKER_CONTAINER_TIMEOUT}"
             - name: "CONFIG_whisk_containerProxy_timeouts_pauseGrace"
               value: "${INVOKER_CONTAINER_PAUSE_TIMEOUT}"
+            - name: "CONFIG_whisk_kubernetes_concurrentStarts"
+              value: "${INVOKER_CONTAINER_CONCURRENT_STARTS}"
+            - name: "CONFIG_whisk_memory_max"
+              value: "${WHISK_ACTIONS_MEMORY_MAX}"
+            - name: "CONFIG_whisk_memory_min"
+              value: "${WHISK_ACTIONS_MEMORY_MIN}"
+            - name: "CONFIG_whisk_memory_std"
+              value: "${WHISK_ACTIONS_MEMORY_STD}"
+            - name: "CONFIG_whisk_kafka_replicationFactor"
+              value: "${WHISK_KAFKA_REPLICATION_FACTOR}"
+            - name: "CONFIG_whisk_kafka_topics_invoker_retentionBytes"
+              value: "${WHISK_KAFKA_TOPICS_INVOKER_RETENTION_BYTES}"
             - name: "DOCKER_IMAGE_PREFIX"
               valueFrom:
                 configMapKeyRef:
@@ -1146,11 +1228,8 @@ objects:
               value: "10 minutes"
             - name: "CONFIG_whisk_kubernetes_timeouts_logs"
               value: "10 minutes"
-
-            # Uncomment the below to stop fetching action logs and
-            # greatly increase throughput if you don't need them
-            # - name: "CONFIG_whisk_spi_LogStoreProvider"
-            #   value: "whisk.core.containerpool.logging.LogDriverLogStoreProvider"
+            - name: "CONFIG_whisk_spi_LogStoreProvider"
+              value: "${INVOKER_LOGSTORE_PROVIDER}"
 - apiVersion: batch/v1
   kind: Job
   metadata:
@@ -1168,28 +1247,28 @@ objects:
         restartPolicy: Never
         initContainers:
         - name: preload-openwhisk-nodejs6
-          image: action-nodejs-6:${PROJECTODD_VERSION}
+          image: action-nodejs-6:whisky
           imagePullPolicy: IfNotPresent
           command: ["/bin/sh", "-c", "echo", "success"]
         - name: preload-openwhisk-java8
-          image: action-java-8:${PROJECTODD_VERSION}
+          image: action-java-8:whisky
           imagePullPolicy: IfNotPresent
           command: ["/bin/sh", "-c", "echo", "success"]
         - name: preload-openwhisk-python3
-          image: action-python-3:${PROJECTODD_VERSION}
+          image: action-python-3:whisky
           imagePullPolicy: IfNotPresent
           command: ["/bin/sh", "-c", "echo", "success"]
         - name: preload-openwhisk-python2
-          image: action-python-2:${PROJECTODD_VERSION}
+          image: action-python-2:whisky
           imagePullPolicy: IfNotPresent
           command: ["/bin/sh", "-c", "echo", "success"]
         - name: preload-openwhisk-php7
-          image: action-php-7:${PROJECTODD_VERSION}
+          image: action-php-7:whisky
           imagePullPolicy: IfNotPresent
           command: ["/bin/sh", "-c", "echo", "success"]
         containers:
         - name: preload-openwhisk-nodejs8
-          image: action-nodejs-8:${PROJECTODD_VERSION}
+          image: action-nodejs-8:whisky
           imagePullPolicy: IfNotPresent
           command: ["/bin/sh", "-c", "echo", "success"]
 - apiVersion: v1
@@ -1304,27 +1383,27 @@ objects:
   
               # redirect requests for specific binaries to the matching one from the latest openwhisk-cli release.
               location /cli/go/download/linux/amd64 {
-                  return 301 https://github.com/apache/incubator-openwhisk-cli/releases/download/latest/OpenWhisk_CLI-latest-linux-amd64.tgz;
+                  return 301 https://github.com/projectodd/openwhisk-openshift/releases/download/latest/OpenWhisk_CLI-latest-linux-amd64.tgz;
               }
               location /cli/go/download/linux/386 {
-                  return 301 https://github.com/apache/incubator-openwhisk-cli/releases/download/latest/OpenWhisk_CLI-latest-linux-386.tgz;
+                  return 301 https://github.com/projectodd/openwhisk-openshift/releases/download/latest/OpenWhisk_CLI-latest-linux-386.tgz;
               }
               location /cli/go/download/mac/amd64 {
-                  return 301 https://github.com/apache/incubator-openwhisk-cli/releases/download/latest/OpenWhisk_CLI-latest-mac-amd64.zip;
+                  return 301 https://github.com/projectodd/openwhisk-openshift/releases/download/latest/OpenWhisk_CLI-latest-mac-amd64.zip;
               }
               location /cli/go/download/mac/386 {
-                  return 301 https://github.com/apache/incubator-openwhisk-cli/releases/download/latest/OpenWhisk_CLI-latest-mac-386.zip;
+                  return 301 https://github.com/projectodd/openwhisk-openshift/releases/download/latest/OpenWhisk_CLI-latest-mac-386.zip;
               }
               location /cli/go/download/windows/amd64 {
-                  return 301 https://github.com/apache/incubator-openwhisk-cli/releases/download/latest/OpenWhisk_CLI-latest-windows-amd64.zip;
+                  return 301 https://github.com/projectodd/openwhisk-openshift/releases/download/latest/OpenWhisk_CLI-latest-windows-amd64.zip;
               }
               location /cli/go/download/windows/386 {
-                  return 301 https://github.com/apache/incubator-openwhisk-cli/releases/download/latest/OpenWhisk_CLI-latest-windows-386.zip;
+                  return 301 https://github.com/projectodd/openwhisk-openshift/releases/download/latest/OpenWhisk_CLI-latest-windows-386.zip;
               }
   
               # redirect top-level cli downloads to the latest openwhisk-cli release.
               location /cli/go/download {
-                  return 301 https://github.com/apache/incubator-openwhisk-cli/releases/latest;
+                  return 301 https://github.com/projectodd/openwhisk-openshift/releases/latest;
                }
           }
       }
@@ -1354,7 +1433,7 @@ objects:
         - name: nginx
           imagePullPolicy: IfNotPresent
           # Image from Mar 22nd
-          image: centos/nginx-112-centos7@sha256:42330f7f29ba1ad67819f4ff3ae2472f62de13a827a74736a5098728462212e7
+          image: nginx:whisky
           command: [ "/bin/bash", "-o", "allexport", "/nginx_config/init" ]
           env:
           - name: KUBERNETES_NAMESPACE
@@ -1373,7 +1452,7 @@ objects:
             mountPath: "/logs"
         initContainers:
         - name: wait-for-controller
-          image: busybox
+          image: busybox:whisky
           command: ['sh', '-c', 'until wget -T 5 --spider http://controller:8080/ping; do echo waiting for controller; sleep 2; done;']
 - apiVersion: v1
   kind: Secret
@@ -1406,7 +1485,7 @@ objects:
         serviceAccountName: openwhisk
         containers:
         - name: strimzi-cluster-controller
-          image: cluster-controller:${STRIMZI_VERSION}
+          image: cluster-controller:whisky
           env:
           - name: STRIMZI_CONFIGMAP_LABELS
             value: "strimzi.io/kind=cluster"
@@ -1430,11 +1509,11 @@ objects:
             periodSeconds: 30
         initContainers:
         - name: preload-strimzi-zookeeper
-          image: zookeeper:${STRIMZI_VERSION}
+          image: strimzi/zookeeper:${STRIMZI_VERSION}
           imagePullPolicy: IfNotPresent
           command: ["/bin/sh", "-c", "echo", "success"]
         - name: preload-strimzi-kafka
-          image: kafka:${STRIMZI_VERSION}
+          image: strimzi/kafka:${STRIMZI_VERSION}
           imagePullPolicy: IfNotPresent
           command: ["/bin/sh", "-c", "echo", "success"]
 - apiVersion: v1
@@ -1472,7 +1551,7 @@ objects:
         containers:
         - name: alarmprovider
           imagePullPolicy: IfNotPresent
-          image: alarmprovider:1.9.0
+          image: alarmprovider:whisky
           command: [ "/bin/bash", "-c", "source /alarmprovider_config/env; node /alarmsTrigger/app.js" ]
           envFrom:
           - configMapRef:
@@ -1500,11 +1579,11 @@ objects:
             mountPath: "/alarmprovider_config"
         initContainers:
         - name: wait-for-couchdb
-          image: busybox
+          image: busybox:whisky
           command: ['sh', '-cu', 'echo "$COUCHDB_SERVICE_HOST"']
         - name: install-alarms-catalog
           imagePullPolicy: IfNotPresent
-          image: alarms:${PROJECTODD_VERSION}
+          image: alarms:whisky
           envFrom:
           - configMapRef:
               name: alarmprovider
@@ -1546,7 +1625,7 @@ objects:
             restartPolicy: Never
             containers:
             - name: refresh-activations
-              image: alarms:${PROJECTODD_VERSION}
+              image: alarms:whisky
               command: ["/bin/bash", "-c", "/openwhisk/bin/wsk --auth $AUTH_GUEST --apihost http://controller:8080 -i activation list"]
               env:
               - name: "AUTH_GUEST"
@@ -1556,7 +1635,7 @@ objects:
                     key: guest
             initContainers:
             - name: wait-for-controller
-              image: busybox
+              image: busybox:whisky
               command: ['sh', '-c', 'until wget -T 5 --spider http://controller:8080/ping; do echo waiting for controller; sleep 2; done;']
               restartPolicy: Never
 - apiVersion: batch/v2alpha1
@@ -1579,9 +1658,9 @@ objects:
           spec:
             restartPolicy: Never
             containers:
-            - name: refresh-activations
-              image: couchdb:${PROJECTODD_VERSION}
-              command: ["/bin/bash", "-c", "set -x; /openwhisk/tools/db/deleteLogsFromActivations.py --dbUrl http://$DB_USERNAME:$DB_PASSWORD@$COUCHDB_SERVICE_HOST:$COUCHDB_SERVICE_PORT_COUCHDB --dbName $DB_ACTIVATIONS --days $DB_DAYS_TO_KEEP_LOGS; /openwhisk/tools/db/cleanUpActivations.py --dbUrl http://$DB_USERNAME:$DB_PASSWORD@$COUCHDB_SERVICE_HOST:$COUCHDB_SERVICE_PORT_COUCHDB --dbName $DB_ACTIVATIONS --days $DB_DAYS_TO_KEEP_ACTIVATIONS"]
+            - name: prune-activations
+              image: couchdb:whisky
+              command: ["/bin/bash", "-c", "set -x; curl -H \"Content-Type: application/json\" -X PUT -d \"100\" \"http://$DB_USERNAME:$DB_PASSWORD@$COUCHDB_SERVICE_HOST:$COUCHDB_SERVICE_PORT_COUCHDB/$DB_ACTIONS/_revs_limit\"; curl -H \"Content-Type: application/json\" -X PUT -d \"5\" \"http://$DB_USERNAME:$DB_PASSWORD@$COUCHDB_SERVICE_HOST:$COUCHDB_SERVICE_PORT_COUCHDB/$DB_ACTIVATIONS/_revs_limit\"; /openwhisk/tools/db/deleteLogsFromActivations.py --dbUrl http://$DB_USERNAME:$DB_PASSWORD@$COUCHDB_SERVICE_HOST:$COUCHDB_SERVICE_PORT_COUCHDB --dbName $DB_ACTIVATIONS --days $DB_DAYS_TO_KEEP_LOGS; /openwhisk/tools/db/cleanUpActivations.py --dbUrl http://$DB_USERNAME:$DB_PASSWORD@$COUCHDB_SERVICE_HOST:$COUCHDB_SERVICE_PORT_COUCHDB --dbName $DB_ACTIVATIONS --days $DB_DAYS_TO_KEEP_ACTIVATIONS"]
               env:
               - name: "DB_USERNAME"
                 valueFrom:
@@ -1598,6 +1677,11 @@ objects:
                   configMapKeyRef:
                     name: db.config
                     key: db_whisk_activations
+              - name: "DB_ACTIONS"
+                valueFrom:
+                  configMapKeyRef:
+                    name: db.config
+                    key: db_whisk_actions
               - name: "DB_DAYS_TO_KEEP_LOGS"
                 valueFrom:
                   configMapKeyRef:
@@ -1610,7 +1694,7 @@ objects:
                     key: db_days_to_keep_activations
             initContainers:
             - name: wait-for-couchdb
-              image: busybox
+              image: busybox:whisky
               command: ['sh', '-c', 'until wget -T 5 --spider http://${COUCHDB_SERVICE_HOST}:${COUCHDB_SERVICE_PORT}/${DB_WHISK_ACTIVATIONS}; do echo waiting for couchdb; sleep 2; done;']
               env:
               - name: "DB_WHISK_ACTIVATIONS"

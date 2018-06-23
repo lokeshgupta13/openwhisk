@@ -1,0 +1,43 @@
+oc new-project faas --display-name="FaaS- Apache OpenWhisk"
+
+oc adm policy add-role-to-user admin developer -n faas
+
+oc project -q
+
+oc process -f https://git.io/openwhisk-template | oc create -f -
+
+oc logs -f controller-0 -n faas | grep "invoker status changed"
+
+On UI - make sure controller is up and running
+
+oc patch route openwhisk --namespace faas -p '{"spec":{"tls": {"insecureEdgeTerminationPolicy": "Allow"}}}'
+
+AUTH_SECRET=$(oc get secret whisk.auth -o yaml | grep "system:" | awk '{print $2}' | base64 --decode)
+
+wsk property set --auth $AUTH_SECRET --apihost $(oc get route/openwhisk --template="{{.spec.host}}")
+
+wsk -i property get
+
+wsk -i action list
+
+------------------------------------------------------------------------------------------------------
+mkdir -p /root/projects/getting-started
+
+cd /root/projects/getting-started/
+
+vi greeter.js
+
+"
+function main() {
+    return {payload: 'Welcome to Apache OpenWhisk on OpenShift'};
+}
+"
+
+
+
+wsk -i action create greeter greeter.js
+
+wsk -i action list | grep greeter
+
+wsk -i action invoke greeter --result
+
